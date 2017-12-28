@@ -8,8 +8,16 @@
 #define PIN_B 14  //D5
 
 //EEPROM
-#define SSID_OFFSET 0
-#define PWD_OFFSET 128
+#define RED_OFFSET    0
+#define GREEN_OFFSET  1
+#define BLUE_OFFSET   2
+#define SSID_OFFSET   3
+#define PWD_OFFSET  128
+#define HOST_OFFSET 256
+
+#define EEPROM_BYTES 512
+
+bool new_on = false;
 
 void EEPROM_save(int offset, char *data) {
   int addr=0;
@@ -20,7 +28,7 @@ void EEPROM_save(int offset, char *data) {
 }
 
 //Wifi
-#define HOSTNAME "Easy RGB"
+#define HOSTNAME "Easy RGB"                                     //default name, if not set by user in config-page x
 
 void WiFi_start_AP() {
   WiFi.mode(WIFI_AP);
@@ -29,7 +37,16 @@ void WiFi_start_AP() {
   WiFi.softAP("EasyRGB");
 }
 void WiFi_connect(char *ssid, char *pwd) {
-    WiFi.hostname(HOSTNAME);
+  String hostname = HOSTNAME;
+  if(EEPROM.read(HOST_OFFSET) == 255) {
+    int addr=0;
+    do{                                                         //read ssid
+      addr++;
+      hostname[addr] = EEPROM.read(SSID_OFFSET+addr);
+    } while(hostname[addr] != '\0');
+
+  }
+    WiFi.hostname(hostname);
     WiFi.mode(WIFI_STA);
     WiFi.begin(&ssid[0], &pwd[0]);
 }
@@ -135,6 +152,7 @@ const String Config_Page = "<!DOCTYPE html>\
   </head>\
   <body style=\"background-color:#222;\">\
     <form action=\"\" method=\"POST\" style=\"\">\
+      <input type=\"text\" name=\"hostname\" placeholder=\"Hostname\"><br>\
       <input type=\"text\" name=\"ssid\" placeholder=\"SSID\"><br>\
       <input type=\"password\" name=\"pwd\" placeholder=\"Password\"><br>\
       <input type=\"submit\" name=\"action\" value=\"OK\">\
@@ -147,14 +165,34 @@ void Ereignis_Index()
 {
   String Page = Page_Header;
   int r=0,g=0,b=0;
-  if(server.arg("on") == "on") {
+  if(server.hasArg("rgb")) {
     String rgb = server.arg("rgb");
     int number = (int) strtol( &rgb[0], NULL, 16);
     // Split them up into r, g, b values
     r = number >> 16;
     g = number >> 8 & 0xFF;
     b = number & 0xFF;
+  }
+  if(server.hasArg("on") && (server.arg("on") == "on")) {
     Page += "checked";
+    //"on" changed NOW, so read the old values, before shut down
+    if(new_on == false) {
+      new_on = true;
+      r = EEPROM.read(RED_OFFSET);
+      g = EEPROM.read(GREEN_OFFSET);
+      b = EEPROM.read(BLUE_OFFSET);
+    }
+  } else {
+    //it will be now shut down, save the values for reboot
+    if(new_on == true) {
+      EEPROM.write(RED_OFFSET,r);
+      EEPROM.write(GREEN_OFFSET,g);
+      EEPROM.write(BLUE_OFFSET,b);
+      r=0;
+      g=0;
+      b=0;
+      new_on = false;
+    }
   }
   Page += Page_Footer;
   analogWrite(PIN_R,r);
@@ -165,6 +203,10 @@ void Ereignis_Index()
 
 void Ereignis_Config()
 {
+  if(server.hasArg("hostname")) {
+    String hostname = server.arg("hostname");
+    EEPROM_save(HOST_OFFSET,&hostname[0]);
+  }
   if(server.hasArg("ssid") && server.hasArg("pwd")) {
     String ssid = server.arg("ssid");
     String pwd = server.arg("pwd");
@@ -189,7 +231,7 @@ void setup()
   char ssid[128];
   char pwd[128];
  
-  EEPROM.begin(256);                                            //EEPROM init with 256 Bytes/Chars
+  EEPROM.begin(EEPROM_BYTES);
 
   if(EEPROM.read(SSID_OFFSET) == 255) {                         //if SSID saved in EEPROM is empty, setup AccessPoint
     WiFi_start_AP();
