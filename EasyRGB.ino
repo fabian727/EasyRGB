@@ -1,94 +1,137 @@
 #include <ESP8266WiFi.h>
+#include <WiFiClient.h>
 #include <ESP8266WebServer.h>
-#include <EEPROM.h>
+#include <ESP8266mDNS.h>
+#include <ESP8266HTTPUpdateServer.h>
+#include <FS.h>
+
+const char* host = "EasyRGB";
+const char* update_path = "/update";
+const char* update_username = "admin";
+const char* update_password = "admin";
+
+ESP8266WebServer httpServer(80);
+ESP8266HTTPUpdateServer httpUpdater;
 
 //RGB LEDs
-#define PIN_R 12  //D6
-#define PIN_G 13  //D7
-#define PIN_B 14  //D5
+#define PIN_R 2
+#define PIN_G 3
+#define PIN_B 0
+//Tx = GPIO 1
+//Rx = GPIO 3
 
-//EEPROM
-#define RED_OFFSET    0
-#define GREEN_OFFSET  1
-#define BLUE_OFFSET   2
-#define SSID_OFFSET   3
-#define PWD_OFFSET  128
-#define HOST_OFFSET 256
-
-#define EEPROM_BYTES 512
-
-bool new_on = false;
-
-void EEPROM_save(int offset, char *data) {
-  int addr=0;
-  while(data[addr] != '\0'){
-    EEPROM.write(offset+addr,data[addr]);
-    addr++;
-  }
-}
-
-//Wifi
-#define HOSTNAME "Easy RGB"                                     //default name, if not set by user in config-page x
-
-void WiFi_start_AP() {
-  WiFi.mode(WIFI_AP);
-  IPAddress apIP(192, 168, 4, 1);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00  
-  WiFi.softAP("EasyRGB");
-}
-void WiFi_connect(char *ssid, char *pwd) {
-  String hostname = HOSTNAME;
-  if(EEPROM.read(HOST_OFFSET) == 255) {
-    int addr=0;
-    do{                                                         //read ssid
-      addr++;
-      hostname[addr] = EEPROM.read(SSID_OFFSET+addr);
-    } while(hostname[addr] != '\0');
-
-  }
-    WiFi.hostname(hostname);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(&ssid[0], &pwd[0]);
-}
-
-//WebServer 
-ESP8266WebServer server(80);
-
-const String Page_Header = "<!DOCTYPE html>\
+const String PageOne = "<!DOCTYPE html>\
 <html>\
 <meta content=\"text/html; charset=ISO-8859-1\" http-equiv=\"content-type\">\
+<meta charset=\"UTF-8\">\
 <head>\
   <title>Web RGB</title>\
-<script>\
-function canvas_create() {\
-var canvas = document.getElementById(\"picker\");\
-var context = canvas.getContext(\"2d\");\
-var x = canvas.width / 2;\
-var y = canvas.height / 2;\
-var radius = 100;\
-var counterClockwise = false;\
+<style>\
+body {\
+  background-color: black;\
+  margin: 0px;\
+  padding: 0px;\
+  font-size: 30px;\
+}\
+form {\
+  display: none;\
+}\
+canvas {\
+  width: 100%;\
+  max-width: 500px;\
+  margin-left: auto;\
+  margin-right: auto;\
+  display: block;\
+}\
+#inner {\
+  position: absolute;\
+  left: 50vw;\
+  top: calc(250px - 65px);\
+  height: 26vw;\
+  width: 26vw;\
+  transform:translateX(-50%);\
+  max-height: 130px;\
+  max-width: 130px;\
+  border-radius: 100%;\
+  background-color: #838485;\
+  border: 5px solid black;\
+  cursor: pointer;\
+}\
+@media screen and (max-width: 500px) {\
+  #inner {\
+    top: 36vw;    /*works until max size is reached*/\
+  }\
+}\
+#inner > p {\
+  text-align: center;\
+  padding-top: calc(50% - 20px);\
+  margin: 0;\
+  text-shadow: 0px 0px 5px #";
+const String PageTwo=";}\
 \
-for(var angle=0; angle<=360; angle+=1){\
+</style>\
+<script>\
+function power() {\
+  if(document.getElementById(\"power\").checked == false) {\
+    document.getElementById(\"inner\").children[0].style.textShadow = \"0px 0px 5px #";
+    
+const String PageThree= " \";\
+  } else {\
+    document.getElementById(\"inner\").children[0].style.textShadow = \"unset\";\
+  }\
+  document.getElementById(\"power\").checked = !document.getElementById(\"power\").checked;\
+  document.getElementById(\"Form\").submit();\
+}\
+function canvas_create() {\
+  var canvas = document.getElementById(\"picker\");\
+  var width = canvas.offsetWidth;\
+  canvas.width = width;\
+  canvas.height = width;\
+  var context = canvas.getContext(\"2d\");\
+  var x = width/2;\
+  var radius = width/3;\
+  var counterClockwise = false;\
+\
+  for(var angle=0; angle<=360; angle+=1){\
     var startAngle = (angle-2)*Math.PI/180;\
     var endAngle = angle * Math.PI/180;\
     context.beginPath();\
-    context.moveTo(x, y);\
-    context.arc(x, y, radius, startAngle, endAngle, counterClockwise);\
+    context.moveTo(x, x);\
+    context.arc(x, x, radius, startAngle, endAngle, counterClockwise);\
     context.closePath();\
     context.fillStyle = 'hsl('+angle+', 100%, 50%)';\
     context.fill();\
-}\
+  }\
+  \
+  var gradient = context.createRadialGradient(x, x, x/3.5, x, x, x/2);\
+  gradient.addColorStop(0, 'white');\
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');\
+  context.fillStyle = gradient;\
+  context.fillRect(0, 0, width, width);\
+  gradient = context.createRadialGradient(x, x, x/2.1, x, x, x/1.4);\
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');\
+  gradient.addColorStop(1, 'black');\
+  context.fillStyle = gradient;\
+  context.fillRect(0, 0, width, width);\
+  document.getElementById(\"picker\").addEventListener(\"click\",function(event){\
+    var eventLocation = getEventLocation(this,event);\
+    var context = this.getContext('2d');\
+    var pixelData = context.getImageData(eventLocation.x, eventLocation.y, 1, 1).data; \
+    var hex = (\"000000\" + rgbToHex(pixelData[0], pixelData[1], pixelData[2])).slice(-6);\
+    document.getElementById(\"rgb\").value = hex;\
+    document.getElementById(\"Form\").submit();\
+  },false);\
 }\
 function getElementPosition(obj) {\
-    var curleft = 0, curtop = 0;\
-    if (obj.offsetParent) {\
-        do {\
-            curleft += obj.offsetLeft;\
-            curtop += obj.offsetTop;\
-        } while (obj = obj.offsetParent);\
-        return { x: curleft, y: curtop };\
-    }\
-    return undefined;\
+  var curleft = 0, curtop = 0;\
+  if (obj.offsetParent) {\
+    do {\
+      curleft += obj.offsetLeft;\
+      curtop += obj.offsetTop;\
+    } while (obj = obj.offsetParent);\
+    return { x: curleft, y: curtop };\
+  }\
+  return undefined;\
 }\
 function getEventLocation(element,event){\
     var pos = getElementPosition(element);\
@@ -98,178 +141,122 @@ function getEventLocation(element,event){\
     };\
 }\
 function rgbToHex(r, g, b) {\
-    if (r > 255 || g > 255 || b > 255)\
-        throw \"Invalid color component\";\
-    return ((r << 16) | (g << 8) | b).toString(16);\
-}\
-function canvas_listen() {\
-var canvas = document.getElementById(\"picker\");\
-canvas.addEventListener(\"click\",function(event){\
-    var eventLocation = getEventLocation(this,event);\
-    var context = this.getContext('2d');\
-    var pixelData = context.getImageData(eventLocation.x, eventLocation.y, 1, 1).data; \
-    var hex = (\"000000\" + rgbToHex(pixelData[0], pixelData[1], pixelData[2])).slice(-6);\
-    document.getElementById(\"rgb\").value = hex;\
-    document.getElementById(\"Form\").submit();\
-},false);\
+  if (r > 255 || g > 255 || b > 255)\
+    throw \"Invalid color component\";\
+  return ((r << 16) | (g << 8) | b).toString(16);\
 }\
 </script>\
 </head>\
-<body style=\"background-color:#222;\">\
+<body>\
   <form id=\"Form\" action=\"\" method=\"GET\">\
-    <input type=\"checkbox\" name=\"on\" onChange=\"this.form.submit()\"";
-    
-const String Page_Footer = ">\
-    <input id=\"rgb\" type=\"text\" name=\"rgb\" value=\"\" style=\"visibility:hidden;\">\
+    <input id=\"rgb\" type=\"text\" name=\"rgb\" value=\"\"></input>\
+    <input id=\"power\" type=\"checkbox\" name=\"on\"";
+
+const String PageFour="></input>\
   </form>\
-  <canvas id=\"picker\" width=\"300\" height=\"300\"></canvas>\
+  <canvas id=\"picker\"></canvas>\
+  <div id=\"inner\" onclick=\"power()\"><p>&#x23FB;</p></div>\
 </body>\
-<foot>\
+<footer>\
   <script>\
     canvas_create();\
-    canvas_listen();\
   </script>\
-</foot>\
-</html>\
-";
-
-const String Config_Page = "<!DOCTYPE html>\
-<html>\
-  <meta content=\"text/html; charset=ISO-8859-1\" http-equiv=\"content-type\">\
-  <head>\
-    </script>\
-    <style>\
-      input[type=text] {\
-        width:200%;\
-      }\
-      form {\
-        margin-left:auto;\
-        margin-right:auto;\
-        width:100px;\
-      }\
-    </style>\
-    <title>Web RGB</title>\
-  </head>\
-  <body style=\"background-color:#222;\">\
-    <form action=\"\" method=\"POST\" style=\"\">\
-      <input type=\"text\" name=\"hostname\" placeholder=\"Hostname\"><br>\
-      <input type=\"text\" name=\"ssid\" placeholder=\"SSID\"><br>\
-      <input type=\"password\" name=\"pwd\" placeholder=\"Password\"><br>\
-      <input type=\"submit\" name=\"action\" value=\"OK\">\
-    </form>\
-  </body>\
-</html>\
-";
+</footer>\
+</html>";
 
 void Ereignis_Index()
 {
-  String Page = Page_Header;
-  int r=0,g=0,b=0;
-  if(server.hasArg("rgb")) {
-    String rgb = server.arg("rgb");
+  uint8_t r=0,g=0,b=0;
+  String Page= PageOne;
+  String rgb="000";
+  if(httpServer.hasArg("rgb")) {
+    rgb = httpServer.arg("rgb");
     int number = (int) strtol( &rgb[0], NULL, 16);
     // Split them up into r, g, b values
     r = number >> 16;
     g = number >> 8 & 0xFF;
     b = number & 0xFF;
   }
-  if(server.hasArg("on") && (server.arg("on") == "on")) {
-    Page += "checked";
-    //"on" changed NOW, so read the old values, before shut down
-    if(new_on == false) {
-      new_on = true;
-      r = EEPROM.read(RED_OFFSET);
-      g = EEPROM.read(GREEN_OFFSET);
-      b = EEPROM.read(BLUE_OFFSET);
-    }
+  Page+=rgb+PageTwo+rgb+PageThree;
+
+  if(httpServer.hasArg("on") && httpServer.arg("on") == "on") {
+    Page += " checked";
   } else {
-    //it will be now shut down, save the values for reboot
-    if(new_on == true) {
-      EEPROM.write(RED_OFFSET,r);
-      EEPROM.write(GREEN_OFFSET,g);
-      EEPROM.write(BLUE_OFFSET,b);
-      r=0;
-      g=0;
-      b=0;
-      new_on = false;
-    }
+    r=0;
+    g=0;
+    b=0;
   }
-  Page += Page_Footer;
   analogWrite(PIN_R,r);
   analogWrite(PIN_G,g);
   analogWrite(PIN_B,b);
-  server.send(200, "text/html", Page);
+  Page += PageFour;
+  httpServer.send(200, "text/html", Page);
 }
 
-void Ereignis_Config()
-{
-  if(server.hasArg("hostname")) {
-    String hostname = server.arg("hostname");
-    EEPROM_save(HOST_OFFSET,&hostname[0]);
+String FileRead(const char *path) {
+  String content;
+  File file;
+  if (!SPIFFS.open(path, "r")) {
+    return "";
   }
-  if(server.hasArg("ssid") && server.hasArg("pwd")) {
-    String ssid = server.arg("ssid");
-    String pwd = server.arg("pwd");
-    EEPROM_save(SSID_OFFSET,&ssid[0]);
-    EEPROM_save(PWD_OFFSET,&pwd[0]);
-    WiFi_connect(&ssid[0], &pwd[0]);
-  }
-    server.send(200, "text/html", Config_Page);
+  content = file.readStringUntil(EOF);
+  file.close();
+  return content;
 }
 
+bool FileWrite(const char *path, String* content) {
+  File file;
+  if (!SPIFFS.open(path, "w")) {
+    return false;
+  }
+  file.print(*content);
+  file.close();
+}
   //-------//
  // SETUP //
 //-------//
-void setup()
-{
+void setup(void) {
+  //Setup File System
+  SPIFFS.begin();
+  //Setup WiFi (if needed with WPS)
+  WiFi.mode(WIFI_STA);
+  if (!WiFi.SSID()) { //on empty SSID (saved on SPI flash)
+    if (WiFi.beginWPSConfig()) { //start WPS
+      if (WiFi.SSID()) {  //re-assure with SSID
+        WiFi.begin(WiFi.SSID().c_str(), WiFi.psk().c_str()); //start WiFi-session
+      }
+    }
+  } else {  //on already known SSID & PWD
+    WiFi.begin(WiFi.SSID().c_str(), WiFi.psk().c_str()); //start WiFi-session
+  }
+
+  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    WiFi.disconnect();  //delete SSID
+    setup();
+  }
+
+  MDNS.begin(host);
+
+  httpUpdater.setup(&httpServer, update_path, update_username, update_password);
+  httpServer.on("/", Ereignis_Index);
+
+  httpServer.begin();
+
+  MDNS.addService("http", "tcp", 80);
+
   //LEDs                                                        //not needed for real, but for sure (security)
   pinMode(PIN_R, OUTPUT);
   pinMode(PIN_G, OUTPUT);
   pinMode(PIN_B, OUTPUT);
 
-  //WiFi
-  char ssid[128];
-  char pwd[128];
- 
-  EEPROM.begin(EEPROM_BYTES);
+  digitalWrite(PIN_R,LOW);
+  digitalWrite(PIN_G,LOW);
+  digitalWrite(PIN_B,LOW);
 
-  if(EEPROM.read(SSID_OFFSET) == 255) {                         //if SSID saved in EEPROM is empty, setup AccessPoint
-    WiFi_start_AP();
-  } else {                                                      //else
-    int addr=0;
-    do{                                                         //read ssid
-      addr++;
-      ssid[addr] = EEPROM.read(SSID_OFFSET+addr);
-    } while(ssid[addr] != '\0');
-    addr=0;
-    do{                                                         //read pwd
-      addr++;
-      pwd[addr] = EEPROM.read(PWD_OFFSET+addr);
-    } while(pwd[addr] != '\0');
+  analogWriteRange(255);
 
-    WiFi_connect(&ssid[0],&pwd[0]);                             //check if connection was successfull, else start AccesPoint
-    int tmr = 0;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      delay(500);
-      tmr++;
-      if(tmr > 12) {//>6sec
-        EEPROM.write(0,255);
-        WiFi_start_AP();
-        break;
-      }
-    }
-  }
- 
-  server.on("/", Ereignis_Index);
-  server.on("/config", Ereignis_Config);
-  server.begin();
 }
 
-  //------//
- // LOOP //
-//------//
-void loop()
-{
-  server.handleClient();
+void loop(void) {
+  httpServer.handleClient();
 }
