@@ -1,199 +1,53 @@
-#include "config.h"
-
-#ifdef WIFI
 #include <ESP8266WiFi.h>
-//WiFi
-#ifndef WLAN_SSID
-#define WLAN_SSID "YOUR_SSID"
-#endif
-#ifndef WLAN_PWD
-#define WLAN_PWD "YOUR_PWD"
-#endif
-#endif
-
-#ifdef PWM_LED
-#ifndef PIN_R
-#define PIN_R 12
-#endif
-#ifndef PIN_G
-#define PIN_G 13
-#endif
-#ifndef PIN_B
-#define PIN_B 14
-#endif
-#endif
-
-#ifdef mDNS
-//mDNS
-#include <ESP8266mDNS.h>
-#endif
-String host = "easyrgb";
-String ssid = "................................................................";
-String pwd  = "................................................................";
-
-#include <ESP_EEPROM.h>
-
-
-#ifdef WebServer
-#include "webpage.h"
+#include <WiFiClient.h>
 #include <ESP8266WebServer.h>
-//WebServer
-ESP8266WebServer httpServer(80);
+#include <ESP8266mDNS.h>
+#include <FS.h>
 
-//UpdateServer
+#include <Adafruit_NeoPixel.h>
+#include <ArduinoJson.h>
 #include <ESP8266HTTPUpdateServer.h>
+
+#define DEBUG
+#ifdef DEBUG
+#define DEBUG_PRINT(x)  Serial.print(x)
+#else
+#define DEBUG_PRINT(x)
+#endif
+
+//all you need for LED driving (WS2812 or PWM)
+Adafruit_NeoPixel pixels1;
+Adafruit_NeoPixel pixels2;
+#define NUMPIXELS 1
+
+//following variables without values, will be read of the configuration file
+//esp8266-01
+uint8_t pin1, //red
+        pin2, //green
+        pin3; //blue
+
+uint8_t width,
+        height;
+bool analog = false;
+bool ws2812 = false;
+
+//parameters of the HomePage, given to the Output
+bool power = false;
+uint8_t red = 0,
+        green = 0,
+        blue = 0;
+
+//all you need for hosting a webserver
+char* ssid = nullptr;
+char* pwd = nullptr;
+char* host = nullptr;
+
+ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 static const char* update_path = "/update";
 static const char* update_username = "admin";
 static const char* update_password = "admin";
-#endif
 
-#ifdef CONFIG
-//#include <ArduinoJson.h>
-//#include "FS.h"
-
-int width = 30, height = 10, pin1 = 0, pin2 = 5;
-
-/*
- * load Config
- */
-bool loadConfig() {
-  /*
-  File configFile = SPIFFS.open("/config.json", "r");
-  if (!configFile) {
-    Serial.println("Failed to open config file");
-    return false;
-  }
-
-  size_t size = configFile.size();
-  if (size > 1024) {
-    Serial.println("Config file size is too large");
-    return false;
-  }
-
-  // Allocate a buffer to store contents of the file.
-  std::unique_ptr<char[]> buf(new char[size]);
-
-  // We don't use String here because ArduinoJson library requires the input
-  // buffer to be mutable. If you don't use ArduinoJson, you may as well
-  // use configFile.readString instead.
-  configFile.readBytes(buf.get(), size);
-
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject& json = jsonBuffer.parseObject(buf.get());
-
-  if (!json.success()) {
-    Serial.println("Failed to parse config file");
-    return false;
-  }
-
-  width = atoi(json["width"]);
-  height = atoi(json["height"]);
-  pin1 = atoi(json["Pin1"]);
-  pin2 = atoi(json["Pin2"]);
-  host = (const char *) json["ServerName"];
-  ssid = (const char *) json["SSID"];
-  pwd  = (const char *) json["PWD"];
-
-  saveConfig();
-*/
-EEPROM.get(0,width);
-EEPROM.get(2,height);
-EEPROM.get(3,pin1);
-EEPROM.get(4,pin2);
-
-//byte 5-7 is empty
-
-//get bytes 8-63 (all inclusive) as host (as it is saved '\0' terminated, the string will do its rest)
-for(uint8_t i=0;i<(64-7);i++){
-  EEPROM.get(i+8,host[i]);
-}
-//same from bytes 64-127 for the ssid
-for(uint8_t i=0;i<(128-64);i++){
-  EEPROM.get(i+64,ssid[i]);
-}
-//get bytes 8-64 as host (as it is saved '\0' terminated, the string will do its rest)
-for(uint8_t i=0;i<(192-64);i++){
-  EEPROM.get(i+128,pwd[i]);
-}
-  return true;
-}
-
-/*
- * save Config
- */
-bool saveConfig() {
-
-EEPROM.put(0,width);
-EEPROM.put(2,height);
-EEPROM.put(3,pin1);
-EEPROM.put(4,pin2);
-
-//byte 5-7 is empty
-
-//get bytes 8-63 (all inclusive) as host (as it is saved '\0' terminated, the string will do its rest)
-for(uint8_t i=0;i<(64-7);i++){
-  EEPROM.put(i+8,host[i]);
-}
-//same from bytes 64-127 for the ssid
-for(uint8_t i=0;i<(128-64);i++){
-  EEPROM.put(i+64,ssid[i]);
-}
-//get bytes 8-64 as host (as it is saved '\0' terminated, the string will do its rest)
-for(uint8_t i=0;i<(192-64);i++){
-  EEPROM.put(i+128,pwd[i]);
-}
-return EEPROM.commit();
-  /*
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject& json = jsonBuffer.createObject();
-  json["width"] = width;
-  json["height"] = height;
-  json["Pin1"] = pin1;
-  json["Pin2"] = pin2;
-  json["ServerName"] = host;
-  json["SSID"] = ssid;
-  json["PWD"] = pwd;
-
-  File configFile = SPIFFS.open("/config.json", "w");
-  if (!configFile) {
-    Serial.println("Failed to open config file for writing");
-    return false;
-  }
-
-  json.printTo(configFile);
-  return true;
-  */
-}
-#endif
-
-
-void loadDefault() {
-  if(host == "") {
-    host = "easyrgb";
-  }
-  if(ssid == "") {
-    ssid = WLAN_SSID;
-  }
-  if(pwd == "") {
-    pwd = WLAN_PWD;
-  }
-}
-
-#ifdef WS2812
-#include <Adafruit_NeoPixel.h>
-#ifndef NUMPIXELS
-#define NUMPIXELS      4
-#endif
-Adafruit_NeoPixel pixels1 = Adafruit_NeoPixel(NUMPIXELS, pin1, NEO_GRBW + NEO_KHZ800);
-Adafruit_NeoPixel pixels2 = Adafruit_NeoPixel(NUMPIXELS, pin2, NEO_GRBW + NEO_KHZ800);
-#endif
-
-#ifdef WebServer
-
-/*
- * ascii2hex
- */
 char ascii2hex(char c)
 {
   if ((c >= '0') && (c <= '9'))
@@ -205,304 +59,433 @@ char ascii2hex(char c)
   return 0;
 }
 
-/*
- * Ereignis Index
- */
-void Ereignis_Index() {
-  uint8_t r = 0, g = 0, b = 0;
-  String Page = "";
-  String rgb = String("000000");
-  uint8_t red = 0, green = 0, blue = 0, white = 0;
-  if (httpServer.hasArg("rgb") && httpServer.arg("rgb").length() == 6) {
-    rgb = httpServer.arg("rgb");
-    red   = ascii2hex(rgb[0]) << 4 | ascii2hex(rgb[1]);
-    green = ascii2hex(rgb[2]) << 4 | ascii2hex(rgb[3]);
-    blue  = ascii2hex(rgb[4]) << 4 | ascii2hex(rgb[5]);
-  }
+void loadConfig() {
+  String path = "/config.json";
+  if (SPIFFS.exists(path)) {
+    File file = SPIFFS.open(path, "r");
+    StaticJsonBuffer<512> jsonBuffer;
 
-  if (httpServer.hasArg("on") && httpServer.arg("on") == "on") {
-    r = red;
-    g = green;
-    b = blue;
-#ifdef WS2812
-    for (uint8_t i = 0; i < NUMPIXELS; i++) {
-      pixels1.setPixelColor(i, r, g, b, 0);
-    }
-#endif
-#ifdef PWM_LED
-    analogWrite(PIN_R, r);
-    analogWrite(PIN_G, g);
-    analogWrite(PIN_B, b);
-#endif
-  }
+    // Parse the root object
+    JsonObject &root = jsonBuffer.parseObject(file);
 
-  if (!httpServer.hasArg("nosite")) {
-    Page = PageOne;
-    if (httpServer.hasArg("on") && httpServer.arg("on") == "on") {
-      snprintf(&rgb[0], 7, "%06x", (r << 16 | g << 8 | b));
-      Page += rgb;
-      Page += PageTwo;
-      Page += rgb;
-      Page += PageThree + "checked";
+    if (root.success()) {
+      // Copy values from the JsonObject to the Config
+      pin1 = root["pin1"];
+      pin2 = root["pin2"];
+      pin3 = root["pin3"];
+      width  = root["width"];
+      height = root["height"];
+
+      if (host != nullptr) {
+        free(host);
+      }
+      size_t length = root["host"].as<String>().length();
+      host = (char*) malloc(length);
+      strncpy(host, root["host"].as<char*>(), length);
+
+      if (ssid != nullptr) {
+        free(ssid);
+      }
+      length = root["ssid"].as<String>().length();
+      ssid = (char*) malloc(length);
+      strncpy(ssid, root["ssid"].as<char*>(), length);
+
+      if (pwd != nullptr) {
+        free(pwd);
+      }
+      length = root["pwd"].as<String>().length();
+      pwd = (char*) malloc(length);
+      strncpy(pwd, root["pwd"].as<char*>(), length);
+
+      DEBUG_PRINT("loaded configuration file with following parameters:\n");
+      DEBUG_PRINT("pin1: ");
+      DEBUG_PRINT(pin1);
+      DEBUG_PRINT("\npin2: ");
+      DEBUG_PRINT(pin2);
+      DEBUG_PRINT("\npin3: ");
+      DEBUG_PRINT(pin3);
+      DEBUG_PRINT("\nwidth: ");
+      DEBUG_PRINT(width);
+      DEBUG_PRINT("\nheight: ");
+      DEBUG_PRINT(height);
+      DEBUG_PRINT("\nhost: ");
+      DEBUG_PRINT(host);
+      DEBUG_PRINT("\nssid: ");
+      DEBUG_PRINT(ssid);
+      DEBUG_PRINT("\npwd: ");
+      DEBUG_PRINT(pwd);
+      DEBUG_PRINT("\n");
     } else {
-      Page += "000000" + PageTwo + PageThree;
+      DEBUG_PRINT("failed parsing configuration file\n");
     }
-    Page += PageFour;
-    httpServer.send(200, "text/html", Page);
+    // Close the file (File's destructor doesn't close the file)
+    file.close();
   }
-
-#ifdef AMBI
-  //if it is used as ambi light
-  if (httpServer.hasArg("r")) {
-    String clr = httpServer.arg("r");
-    if (clr.length() % 8 == 0) {
-      for (int j = 0, k = 0; j < clr.length(); k++) {
-        red   = clr[j++] << 8 | clr[j++];
-        green = clr[j++] << 8 | clr[j++];
-        blue  = clr[j++] << 8 | clr[j++];
-        white = clr[j++] << 8 | clr[j++];
-#ifdef WS2812
-        pixels1.setPixelColor(k, red, green, blue, white);
-#endif
-      }
-    }
-  }
-  if (httpServer.hasArg("t")) {
-    String clr = httpServer.arg("t");
-    if (clr.length() % 8 == 0) {
-      for (int j = 0, k = 0; j < clr.length(); k++) {
-        red   = clr[j++] << 8 | clr[j++];
-        green = clr[j++] << 8 | clr[j++];
-        blue  = clr[j++] << 8 | clr[j++];
-        white = clr[j++] << 8 | clr[j++];
-#ifdef WS2812
-        pixels1.setPixelColor(k + height, red, green, blue, white);
-#endif
-      }
-    }
-  }
-  if (httpServer.hasArg("b")) {
-    String clr = httpServer.arg("b");
-    if (clr.length() % 8 == 0) {
-      for (int j = 0, k = 0; j < clr.length(); k++) {
-        red   = clr[j++] << 8 | clr[j++];
-        green = clr[j++] << 8 | clr[j++];
-        blue  = clr[j++] << 8 | clr[j++];
-        white = clr[j++] << 8 | clr[j++];
-#ifdef WS2812
-        pixels1.setPixelColor(k, red, green, blue, white);
-#endif
-      }
-    }
-  }
-  if (httpServer.hasArg("l")) {
-    String clr = httpServer.arg("l");
-    if (clr.length() % 8 == 0) {
-      for (int j = 0, k = 0; j < clr.length(); k++) {
-        red   = clr[j++] << 8 | clr[j++];
-        green = clr[j++] << 8 | clr[j++];
-        blue  = clr[j++] << 8 | clr[j++];
-        white = clr[j++] << 8 | clr[j++];
-#ifdef WS2812
-        pixels1.setPixelColor(k + width, red, green, blue, white);
-#endif
-      }
-    }
-  }
-#endif
-#ifdef WS2812
-  pixels1.show();
-  pixels2.show();
-#endif
 }
 
-/*
- * Ereignis Config
- */
-#ifdef CONFIG
-void Ereignis_Config() {
-  String PageConfig;
-  PageConfig += PageConfig1;
-#ifdef WS2812
-  PageConfig += PageConfig9;
-  PageConfig += height;
-  PageConfig += PageConfig2;
-  PageConfig += width;
-  PageConfig += PageConfig3;
-  PageConfig += pin1;
-  PageConfig += PageConfig4;
-  PageConfig += pin2;
-  PageConfig += PageConfig10;
-#endif
-  PageConfig += PageConfig5;
-  PageConfig += host;
-  PageConfig += PageConfig7;
-  PageConfig += ssid;
-  PageConfig += PageConfig8;
-  PageConfig += pwd;
-  PageConfig += PageConfig6;
-  
-  httpServer.send(200, "text/html", PageConfig);
-  if (httpServer.hasArg("width")) {
-    width = atoi(httpServer.arg("width").c_str());
+void saveConfig() {
+  if (server.hasArg("width")) {
+    width = atoi(server.arg("width").c_str());
   }
-  if (httpServer.hasArg("height")) {
-    height = atoi(httpServer.arg("height").c_str());
+  if (server.hasArg("height")) {
+    height = atoi(server.arg("height").c_str());
   }
-#ifdef WS2812
-  if (httpServer.hasArg("height") || httpServer.hasArg("width")) {
+  if (server.hasArg("height") || server.hasArg("width")) {
     pixels1.updateLength(height + width);
     pixels2.updateLength(height + width);
   }
-  if (httpServer.hasArg("pin1")) {
-    pin1 = atoi(httpServer.arg("pin1").c_str());
+  if (server.hasArg("pin1")) {
+    pin1 = atoi(server.arg("pin1").c_str());
     pixels1.setPin(pin1);
   }
-  if (httpServer.hasArg("pin2")) {
-    pin2 = atoi(httpServer.arg("pin2").c_str());
+  if (server.hasArg("pin2")) {
+    pin2 = atoi(server.arg("pin2").c_str());
     pixels2.setPin(pin2);
   }
-#endif
-  if (httpServer.hasArg("ServerName")) {
-    host = httpServer.arg("ServerName");
-  }
-  if (httpServer.hasArg("ssid")) {
-    ssid = httpServer.arg("ssid");
-  }
-  if (httpServer.hasArg("pwd")) {
-    pwd = httpServer.arg("pwd");
+  if (server.hasArg("pin3")) {
+    pin3 = atoi(server.arg("pin3").c_str());
   }
 
-  if (httpServer.hasArg("ServerName") ||
-#ifdef WS2812
-      httpServer.hasArg("height") ||
-      httpServer.hasArg("width") ||
-      httpServer.hasArg("pin1") ||
-      httpServer.hasArg("pin2") ||
-#endif
-      httpServer.hasArg("ssid") ||
-      httpServer.hasArg("pwd")) {
-    saveConfig();
+  if (server.hasArg("host")) {
+    size_t length = server.arg("host").length() + 1;
+    DEBUG_PRINT("host length: ");
+    DEBUG_PRINT(length);
+    DEBUG_PRINT("\n");
+    free(host);
+    host = (char*) malloc(length);
+    server.arg("host") += '\0';
+    for (size_t x = 0; x < length; x++) {
+      host[x] = server.arg("host").c_str()[x];
+    }
+  }
+
+  if (server.hasArg("pwd")) {
+    size_t length = server.arg("pwd").length() + 1;
+    DEBUG_PRINT("pwd length: ");
+    DEBUG_PRINT(length);
+    DEBUG_PRINT("\n");
+    free(pwd);
+    pwd = (char*) malloc(length);
+    server.arg("pwd") += '\0';
+    for (size_t x = 0; x < length; x++) {
+      pwd[x] = server.arg("pwd").c_str()[x];
+    }
+  }
+
+  if (server.hasArg("ssid")) {
+    size_t length = server.arg("ssid").length() + 1;
+    DEBUG_PRINT("ssid length: ");
+    DEBUG_PRINT(length);
+    DEBUG_PRINT("\n");
+    free(ssid);
+    ssid = (char*) malloc(length);
+    server.arg("ssid") += '\0';
+    for (size_t x = 0; x < length; x++) {
+      ssid[x] = server.arg("ssid").c_str()[x];
+    }
+  }
+
+  StaticJsonBuffer<256> jsonBuffer;
+  JsonObject &root = jsonBuffer.createObject();
+
+  // Set the values
+  root["width"] = width;
+  root["height"] = height;
+  root["pin1"] = pin1;
+  root["pin2"] = pin2;
+  root["pin3"] = pin3;
+  root["host"] = host;
+  root["ssid"] = ssid;
+  root["pwd"]  = pwd;
+
+  DEBUG_PRINT("save configuration file with following parameters:\n");
+  DEBUG_PRINT("pin1: ");
+  DEBUG_PRINT(root["pin1"].as<uint8_t>());
+  DEBUG_PRINT("\npin2: ");
+  DEBUG_PRINT(root["pin2"].as<uint8_t>());
+  DEBUG_PRINT("\npin3: ");
+  DEBUG_PRINT(root["pin3"].as<uint8_t>());
+  DEBUG_PRINT("\nwidth: ");
+  DEBUG_PRINT(root["width"].as<uint8_t>());
+  DEBUG_PRINT("\nheight: ");
+  DEBUG_PRINT(root["height"].as<uint8_t>());
+  DEBUG_PRINT("\nhost: |");
+  DEBUG_PRINT(root["host"].as<String>());
+  DEBUG_PRINT("|\nssid: |");
+  DEBUG_PRINT(root["ssid"].as<String>());
+  DEBUG_PRINT("|\npwd: |");
+  DEBUG_PRINT(root["pwd"].as<String>());
+  DEBUG_PRINT("|\n");
+
+  String path = "/config.json";
+  File file = SPIFFS.open(path, "w");
+  if (root.printTo(file) == 0) {
+    DEBUG_PRINT("Failed to write configuration");
+  }
+  file.close();
+}
+
+String getContentType(String filename){
+  if(server.hasArg("download")) return "application/octet-stream";
+  else if(filename.endsWith(".htm")) return "text/html";
+  else if(filename.endsWith(".html")) return "text/html";
+  else if(filename.endsWith(".css")) return "text/css";
+  else if(filename.endsWith(".js")) return "application/javascript";
+  else if(filename.endsWith(".png")) return "image/png";
+  else if(filename.endsWith(".gif")) return "image/gif";
+  else if(filename.endsWith(".jpg")) return "image/jpeg";
+  else if(filename.endsWith(".ico")) return "image/x-icon";
+  else if(filename.endsWith(".xml")) return "text/xml";
+  else if(filename.endsWith(".pdf")) return "application/x-pdf";
+  else if(filename.endsWith(".zip")) return "application/x-zip";
+  else if(filename.endsWith(".gz")) return "application/x-gzip";
+  else if(filename.endsWith(".json")) return "application/json";
+  return "text/plain";
+}
+
+bool handleFileRead(String path){
+  DEBUG_PRINT("handleFileRead: ");
+  DEBUG_PRINT(path);
+  if(path.endsWith("/")) {
+    path += "index.html";
+  } 
+  if(!path.endsWith(".json") && !path.endsWith(".html")) {
+    path += ".html";
+  }
+  String contentType = getContentType(path);
+  if(SPIFFS.exists(path)){
+    File file = SPIFFS.open(path, "r");
+    server.streamFile(file, contentType);
+    file.close();
+    return true;
+  } else {
+    return false;
   }
 }
-#endif
-#endif
 
-/*
- * Setup
- */
-void setup() {
-  Serial.begin(115200);
-#ifdef CONFIG
-  EEPROM.begin(256);
-/*
-  if(!SPIFFS.begin()) {
-    Serial.println("could not mount filesystem");      }
-*/
-  loadConfig();
-  loadDefault();
-#endif
-
-#ifdef PWM_LED
-  pinMode(PIN_R, OUTPUT);
-  pinMode(PIN_G, OUTPUT);
-  pinMode(PIN_B, OUTPUT);
-
-  digitalWrite(PIN_R, LOW);
-  digitalWrite(PIN_G, LOW);
-  digitalWrite(PIN_B, LOW);
-
-  analogWriteRange(255);
-  analogWrite(PIN_R, 50);
-  analogWrite(PIN_G, 0);
-  analogWrite(PIN_B, 0);
-#endif
-
-  //WiFi
-  Serial.println();
-  Serial.println("Up and Running");
-#ifdef WIFI
-  Serial.print("Connecting to \"");
-  Serial.print(ssid);
-  Serial.println("\"");
-  Serial.print("with pwd: \"");
-  Serial.print(pwd);
-  Serial.println("\"");
-  //    WiFi.setOutputPower(0);
-  if(host == "") {
-    host = "easyrgb";
+void configPage() {
+  String path = "/config.html";
+  if (SPIFFS.exists(path)) {
+    File file = SPIFFS.open(path, "r");
+    server.streamFile(file, "text/html");
+    file.close();
+  } else {
+    server.send(404, "text/plain", "FileNotFound");
   }
-  WiFi.hostname(host);
-  WiFi.mode(WIFI_STA);
-
-  int status = WL_IDLE_STATUS;
-  analogWrite(PIN_G, 50);
-  analogWrite(PIN_R, 50);
-  WiFi.begin(ssid.c_str(), pwd.c_str());
-  for(uint8_t i=0;i<20;i++) {
-  while(WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-    if(WiFi.status() == WL_CONNECTED) {
-      Serial.print("!");
+  if (server.hasArg("pin1")) {
+    pin1 = atoi(server.arg("pin1").c_str());
+  }
+  if (server.hasArg("pin2")) {
+    pin2 = atoi(server.arg("pin2").c_str());
+  }
+  if (server.hasArg("pin3")) {
+    pin3 = atoi(server.arg("pin3").c_str());
+  }
+  if (server.hasArg("width")) {
+    width = atoi(server.arg("width").c_str());
+  }
+  if (server.hasArg("height")) {
+    height = atoi(server.arg("height").c_str());
+  }
+  
+  if (server.hasArg("host")) {
+    if (host != nullptr) {
+      free(host);
     }
+    size_t length = server.arg("host").length();
+    host = (char*) malloc(length);
+    strncpy(host, server.arg("host").c_str(), length);
+  }
+
+  if (server.hasArg("pwd")) {
+    if (pwd != nullptr) {
+      free(pwd);
+    }
+    size_t length = server.arg("pwd").length();
+    pwd = (char*) malloc(length);
+    strncpy(pwd, server.arg("pwd").c_str(), length);
+  }
+  
+  if (server.hasArg("ssid")) {
+    if (ssid != nullptr) {
+      free(ssid);
+    }
+    size_t length = server.arg("ssid").length();
+    ssid = (char*) malloc(length);
+    strncpy(ssid, server.arg("ssid").c_str(), length);
+  }
+  
+  saveConfig();
+}
+
+void indexPage() {
+  //if the request has no args, load the page
+  if (server.args() == 0) {
+    String path = "/index.html";
+    if (SPIFFS.exists(path)) {
+      File file = SPIFFS.open(path, "r");
+      server.streamFile(file, "text/html");
+      file.close();
+    } else {
+      server.send(404, "text/plain", "FileNotFound");
+    }
+    //else parse the gotten arguments
+  } else {
+    if (server.hasArg("power")) {
+      String buffer = server.arg("power");
+      if (buffer == "on") {
+        power = true;
+        DEBUG_PRINT("__on__");
+      } else {
+        power = false;
+        DEBUG_PRINT("__off__");
+      }
+      updateLed();
+    }
+    if (server.hasArg("colour")) {
+      String rgb = server.arg("colour");
+      red   = ascii2hex(rgb[0]) << 4 | ascii2hex(rgb[1]);
+      green = ascii2hex(rgb[2]) << 4 | ascii2hex(rgb[3]);
+      blue  = ascii2hex(rgb[4]) << 4 | ascii2hex(rgb[5]);
+
+      DEBUG_PRINT("__");
+      DEBUG_PRINT(server.arg("colour"));
+      DEBUG_PRINT("__");
+      updateLed();
+    }
+    server.send(200, "text/plain", "OK");
+  }
+}
+
+void setupLed() {
+  if (analog) {
+    pinMode(pin1, OUTPUT);
+    pinMode(pin2, OUTPUT);
+    pinMode(pin3, OUTPUT);
+
+    digitalWrite(pin1, LOW);
+    digitalWrite(pin2, LOW);
+    digitalWrite(pin3, LOW);
+
+    analogWriteRange(255);
+    analogWrite(pin1, 0);
+    analogWrite(pin2, 0);
+    analogWrite(pin3, 0);
+  }
+  if (ws2812) {
+    pixels1 = Adafruit_NeoPixel(NUMPIXELS, pin1, NEO_GRBW + NEO_KHZ800);
+    pixels2 = Adafruit_NeoPixel(NUMPIXELS, pin2, NEO_GRBW + NEO_KHZ800);
+  }
+}
+
+void updateLed() {
+  if (analog) {
+    if (power) {
+      analogWrite(pin1, red);
+      analogWrite(pin2, green);
+      analogWrite(pin3, blue);
+    } else {
+      analogWrite(pin1, 0);
+      analogWrite(pin2, 0);
+      analogWrite(pin3, 0);
+    }
+  }
+
+  if (ws2812) {
+    if (power) {
+      for (uint8_t i = 0; i < NUMPIXELS; i++) {
+        pixels1.setPixelColor(i, red, green, blue, 0);
+        pixels2.setPixelColor(i, red, green, blue, 0);
+      }
+    } else {
+      for (uint8_t i = 0; i < NUMPIXELS; i++) {
+        pixels1.setPixelColor(i, 0, 0, 0, 0);
+        pixels2.setPixelColor(i, red, green, blue, 0);
+      }
+    }
+    pixels1.show();
+    pixels2.show();
+  }
+}
+
+void setup() {
+#ifdef DEBUG
+  Serial.begin(115200);
+  Serial.setDebugOutput(true);
+#endif
+
+  //SPIFFS INIT
+  SPIFFS.begin();
+  DEBUG_PRINT("\n");
+  {
+    Dir dir = SPIFFS.openDir("/");
+    while (dir.next()) {
+      String fileName = dir.fileName();
+      //size_t fileSize = dir.fileSize();
+      //Serial.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
+      DEBUG_PRINT("FS File: ");
+      DEBUG_PRINT(fileName.c_str());
+      DEBUG_PRINT("\n");
+    }
+    DEBUG_PRINT("\n");
+  }
+
+  loadConfig();
+  setupLed();
+
+  //WIFI INIT
+  DEBUG_PRINT("Connecting to ");
+  DEBUG_PRINT(ssid);
+  DEBUG_PRINT("\n");
+//  WiFi.mode(WIFI_AP_STA);
+  WiFi.begin(ssid, pwd);
+
+  //10*500ms = 5sec
+  for (uint8_t x = 0; x < 10; x++ ) {
+    if (WiFi.status() == WL_CONNECTED) {
       break;
     }
+    delay(500); //ms
+    DEBUG_PRINT(x);
   }
-  Serial.println("");
-  if(WiFi.status() == WL_CONNECTED) {
-    Serial.println("WiFi connected");
-    Serial.print("My IP: ");
-    Serial.println(WiFi.localIP());
+
+  if (WiFi.status() == WL_CONNECTED) {
+    DEBUG_PRINT("\n");
+    DEBUG_PRINT("Connected! IP address: ");
+    DEBUG_PRINT(WiFi.localIP());
+    DEBUG_PRINT("\n");
   } else {
-    WiFi.softAP("IoT");
-    Serial.println("HotSpot created");
-    Serial.print("My IP: ");
-    Serial.println(WiFi.softAPIP());
+    WiFi.disconnect(true);
+
+    //open a HotSpot with the given name and without a password
+    //ssid,pwd,channel,hidden
+    WiFi.softAP("IoT", NULL, 8, false);
+    DEBUG_PRINT("HotSpot created");
+    DEBUG_PRINT("\n");
+    DEBUG_PRINT("My IP: ");
+    DEBUG_PRINT(WiFi.softAPIP());
+    DEBUG_PRINT("\n");
   }
 
-  // Print the IP address
-#endif
-  //UpdateServer
-#ifdef WebServer
-  httpUpdater.setup(&httpServer, update_path, update_username, update_password);
+  MDNS.begin(host);
+  DEBUG_PRINT("mDNS started as: |");
+  DEBUG_PRINT(host);
+  DEBUG_PRINT("|\n");
 
-  //WebServer
-  httpServer.on("/", Ereignis_Index);
-#ifdef CONFIG
-  httpServer.on("/config", Ereignis_Config);
-#endif
-  httpServer.begin();
-#endif
+  //SERVER INIT
+  httpUpdater.setup(&server, update_path, update_username, update_password);
 
-  //LED strip init black
-#ifdef WS2812
-  pinMode(pin1, OUTPUT);
-  pixels1.begin();
-  pixels1.setPixelColor(0, 0, 100, 0, 0);
-  pixels1.show();
-
-  pinMode(pin2, OUTPUT);
-  pixels2.begin();
-  pixels2.show();
-#endif
-
-  //MDNS
-#ifdef mDNS
-  MDNS.begin((const char*) &host);
-#ifdef WebServer
-  MDNS.addService("http", "tcp", 80);
-#endif
-#endif
-  analogWrite(PIN_R, 0);
-  analogWrite(PIN_G, 50);
-  analogWrite(PIN_B, 0);
+  server.on("/", indexPage);
+  server.on("/config", configPage);
+  server.onNotFound([]() {
+    if(!handleFileRead(server.uri())) {
+      server.send(404, "text/plain", "FileNotFound");
+    }
+  });
+  server.begin();
+  DEBUG_PRINT("HTTP server started\n");
 }
 
 void loop() {
-#ifdef WebServer
-  httpServer.handleClient();
-#endif
+  server.handleClient();
 }
-
-
