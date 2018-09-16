@@ -8,7 +8,7 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPUpdateServer.h>
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #define DEBUG_PRINT(x)  Serial.print(x)
 #else
@@ -28,7 +28,7 @@ uint8_t pin1, //red
 
 uint8_t width,
         height;
-bool analog = false;
+bool analog = true;
 bool ws2812 = false;
 
 //parameters of the HomePage, given to the Output
@@ -124,67 +124,6 @@ void loadConfig() {
 }
 
 void saveConfig() {
-  if (server.hasArg("width")) {
-    width = atoi(server.arg("width").c_str());
-  }
-  if (server.hasArg("height")) {
-    height = atoi(server.arg("height").c_str());
-  }
-  if (server.hasArg("height") || server.hasArg("width")) {
-    pixels1.updateLength(height + width);
-    pixels2.updateLength(height + width);
-  }
-  if (server.hasArg("pin1")) {
-    pin1 = atoi(server.arg("pin1").c_str());
-    pixels1.setPin(pin1);
-  }
-  if (server.hasArg("pin2")) {
-    pin2 = atoi(server.arg("pin2").c_str());
-    pixels2.setPin(pin2);
-  }
-  if (server.hasArg("pin3")) {
-    pin3 = atoi(server.arg("pin3").c_str());
-  }
-
-  if (server.hasArg("host")) {
-    size_t length = server.arg("host").length() + 1;
-    DEBUG_PRINT("host length: ");
-    DEBUG_PRINT(length);
-    DEBUG_PRINT("\n");
-    free(host);
-    host = (char*) malloc(length);
-    server.arg("host") += '\0';
-    for (size_t x = 0; x < length; x++) {
-      host[x] = server.arg("host").c_str()[x];
-    }
-  }
-
-  if (server.hasArg("pwd")) {
-    size_t length = server.arg("pwd").length() + 1;
-    DEBUG_PRINT("pwd length: ");
-    DEBUG_PRINT(length);
-    DEBUG_PRINT("\n");
-    free(pwd);
-    pwd = (char*) malloc(length);
-    server.arg("pwd") += '\0';
-    for (size_t x = 0; x < length; x++) {
-      pwd[x] = server.arg("pwd").c_str()[x];
-    }
-  }
-
-  if (server.hasArg("ssid")) {
-    size_t length = server.arg("ssid").length() + 1;
-    DEBUG_PRINT("ssid length: ");
-    DEBUG_PRINT(length);
-    DEBUG_PRINT("\n");
-    free(ssid);
-    ssid = (char*) malloc(length);
-    server.arg("ssid") += '\0';
-    for (size_t x = 0; x < length; x++) {
-      ssid[x] = server.arg("ssid").c_str()[x];
-    }
-  }
-
   StaticJsonBuffer<256> jsonBuffer;
   JsonObject &root = jsonBuffer.createObject();
 
@@ -293,8 +232,9 @@ void configPage() {
       free(host);
     }
     size_t length = server.arg("host").length();
-    host = (char*) malloc(length);
+    host = (char*) malloc(length+1);
     strncpy(host, server.arg("host").c_str(), length);
+    host[length] = '\0';
   }
 
   if (server.hasArg("pwd")) {
@@ -304,6 +244,7 @@ void configPage() {
     size_t length = server.arg("pwd").length();
     pwd = (char*) malloc(length);
     strncpy(pwd, server.arg("pwd").c_str(), length);
+    pwd[length] = '\0';
   }
   
   if (server.hasArg("ssid")) {
@@ -313,6 +254,7 @@ void configPage() {
     size_t length = server.arg("ssid").length();
     ssid = (char*) malloc(length);
     strncpy(ssid, server.arg("ssid").c_str(), length);
+    ssid[length] = '\0';
   }
   
   saveConfig();

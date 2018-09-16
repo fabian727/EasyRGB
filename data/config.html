@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<meta content="text/html"; charset="ISO-8859-1" http-equiv="content-type">
+<meta charset="UTF-8">
+<head>
+  <title>Web RGB</title>
+  <style>
+		body {
+			background-color: #F0F0F0;
+		}
+		form {
+			margin-left: 50%;
+			margin-top: 5em;
+			display: inline-block;
+			padding: 2em;
+			transform: translateX(-50%);
+			border: 1px solid #404040;
+			border-radius: 1em;
+			color: #404040;
+			background-color: white;
+		}
+		form > input {
+			border-radius: 1em;
+			display: table;
+			margin: 0.4em;
+			padding: 0.4em;
+			border: 1px solid #404040;
+		}
+		form > input:last-child {
+			margin-top: 2em;	
+			float: right;
+			background-color: #F0F0F0;
+		}
+		form > label {
+			margin: 0.4em;
+			width: 4em;
+			float: left;
+			display: table;
+		}
+  </style>
+  <script>
+//create the Html-part (label->input for each key->value)
+		function createInput(key,item) {
+			var input = document.createElement("INPUT");
+			input.setAttribute("type",typeof item);
+			input.setAttribute("name", key);
+			input.setAttribute("value", item);
+			var label = document.createElement("LABEL");
+			label.setAttribute("for", key);
+			label.innerHTML = key;
+			var form = document.getElementsByTagName("FORM")[0];
+			form.appendChild(label);
+			form.appendChild(input);
+		}
+//get the json and fill the form
+		function fillForm() {
+			var xhr = new XMLHttpRequest();
+			xhr.onreadystatechange = function() {
+				if (xhr.readyState === 4) {
+					var MyJson = JSON.parse(xhr.responseText);
+					for (var key in MyJson) {
+						createInput(key, MyJson[key]);
+					}
+					var form = document.getElementsByTagName("FORM")[0];
+					var submit = document.createElement("INPUT");
+					submit.setAttribute("type","submit");
+					submit.setAttribute("value","submit");
+					form.appendChild(submit);
+				}
+			}
+			xhr.open("GET", "/config.json", true);
+			xhr.setRequestHeader('Content-Type', 'application/json');
+			xhr.send();
+		}
+  </script>
+</head>
+<body>
+  <form method="POST" action="">
+  </form>
+</body>
+<footer>
+  <script>
+    fillForm();
+  </script>
+</footer>
+</html>
