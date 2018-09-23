@@ -8,7 +8,7 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPUpdateServer.h>
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 #define DEBUG_PRINT(x)  Serial.print(x)
 #else
@@ -80,22 +80,25 @@ void loadConfig() {
         free(host);
       }
       size_t length = root["host"].as<String>().length();
-      host = (char*) malloc(length);
-      strncpy(host, root["host"].as<char*>(), length);
+      host = (char*) malloc(length+1);
+      strncpy(host, root["host"], length);
+      host[length] = '\0';
 
       if (ssid != nullptr) {
         free(ssid);
       }
       length = root["ssid"].as<String>().length();
-      ssid = (char*) malloc(length);
-      strncpy(ssid, root["ssid"].as<char*>(), length);
+      ssid = (char*) malloc(length+1);
+      strncpy(ssid, root["ssid"], length);
+      ssid[length] = '\0';
 
       if (pwd != nullptr) {
         free(pwd);
       }
       length = root["pwd"].as<String>().length();
-      pwd = (char*) malloc(length);
-      strncpy(pwd, root["pwd"].as<char*>(), length);
+      pwd = (char*) malloc(length+1);
+      strncpy(pwd, root["pwd"], length);
+      pwd[length] = '\0';
 
       DEBUG_PRINT("loaded configuration file with following parameters:\n");
       DEBUG_PRINT("pin1: ");
@@ -108,13 +111,13 @@ void loadConfig() {
       DEBUG_PRINT(width);
       DEBUG_PRINT("\nheight: ");
       DEBUG_PRINT(height);
-      DEBUG_PRINT("\nhost: ");
+      DEBUG_PRINT("\nhost: |");
       DEBUG_PRINT(host);
-      DEBUG_PRINT("\nssid: ");
+      DEBUG_PRINT("|\nssid: |");
       DEBUG_PRINT(ssid);
-      DEBUG_PRINT("\npwd: ");
+      DEBUG_PRINT("|\npwd: |");
       DEBUG_PRINT(pwd);
-      DEBUG_PRINT("\n");
+      DEBUG_PRINT("|\n");
     } else {
       DEBUG_PRINT("failed parsing configuration file\n");
     }
@@ -363,8 +366,6 @@ void setup() {
     Dir dir = SPIFFS.openDir("/");
     while (dir.next()) {
       String fileName = dir.fileName();
-      //size_t fileSize = dir.fileSize();
-      //Serial.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
       DEBUG_PRINT("FS File: ");
       DEBUG_PRINT(fileName.c_str());
       DEBUG_PRINT("\n");
@@ -379,17 +380,20 @@ void setup() {
   DEBUG_PRINT("Connecting to ");
   DEBUG_PRINT(ssid);
   DEBUG_PRINT("\n");
-//  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pwd);
 
-  //10*500ms = 5sec
-  for (uint8_t x = 0; x < 10; x++ ) {
-    if (WiFi.status() == WL_CONNECTED) {
+  //30*500ms = 15sec
+  uint8_t x = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    DEBUG_PRINT(x);
+    x++;
+    if(x>30)
+    {
       break;
     }
-    delay(500); //ms
-    DEBUG_PRINT(x);
-  }
+ }
 
   if (WiFi.status() == WL_CONNECTED) {
     DEBUG_PRINT("\n");
@@ -401,6 +405,7 @@ void setup() {
 
     //open a HotSpot with the given name and without a password
     //ssid,pwd,channel,hidden
+    WiFi.mode(WIFI_AP_STA);
     WiFi.softAP("IoT", NULL, 8, false);
     DEBUG_PRINT("HotSpot created");
     DEBUG_PRINT("\n");
@@ -408,12 +413,13 @@ void setup() {
     DEBUG_PRINT(WiFi.softAPIP());
     DEBUG_PRINT("\n");
   }
-
+/*
+  delay(2000);
   MDNS.begin(host);
   DEBUG_PRINT("mDNS started as: |");
   DEBUG_PRINT(host);
   DEBUG_PRINT("|\n");
-
+*/
   //SERVER INIT
   httpUpdater.setup(&server, update_path, update_username, update_password);
 
@@ -430,4 +436,5 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  delay(10);
 }
