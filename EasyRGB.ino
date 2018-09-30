@@ -1,19 +1,18 @@
+#include "debug.h"
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
+//#include <ESP8266mDNS.h>
 #include <FS.h>
 
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 #include <ESP8266HTTPUpdateServer.h>
 
-#define DEBUG
-#ifdef DEBUG
-#define DEBUG_PRINT(x)  Serial.print(x)
-#else
-#define DEBUG_PRINT(x)
-#endif
+
+#include "filesystem.h"
+
 
 //all you need for LED driving (WS2812 or PWM)
 Adafruit_NeoPixel pixels1;
@@ -36,6 +35,7 @@ bool power = false;
 uint8_t red = 0,
         green = 0,
         blue = 0;
+char* bootupcolor = nullptr;
 
 //all you need for hosting a webserver
 char* ssid = nullptr;
@@ -75,11 +75,18 @@ void loadConfig() {
       pin3 = root["pin3"];
       width  = root["width"];
       height = root["height"];
-
+      if (bootupcolor != nullptr) {
+        free(bootupcolor);
+      }
+      size_t length = root["bootupcolor"].as<String>().length();
+      bootupcolor = (char*) malloc(length+1);
+      strncpy(bootupcolor, root["bootupcolor"], length);
+      bootupcolor[length] = '\0';
+      
       if (host != nullptr) {
         free(host);
       }
-      size_t length = root["host"].as<String>().length();
+      length = root["host"].as<String>().length();
       host = (char*) malloc(length+1);
       strncpy(host, root["host"], length);
       host[length] = '\0';
@@ -139,6 +146,7 @@ void saveConfig() {
   root["host"] = host;
   root["ssid"] = ssid;
   root["pwd"]  = pwd;
+  root["bootupcolor"] = bootupcolor;
 
   DEBUG_PRINT("save configuration file with following parameters:\n");
   DEBUG_PRINT("pin1: ");
@@ -151,6 +159,8 @@ void saveConfig() {
   DEBUG_PRINT(root["width"].as<uint8_t>());
   DEBUG_PRINT("\nheight: ");
   DEBUG_PRINT(root["height"].as<uint8_t>());
+  DEBUG_PRINT("\nbootUpColor: |");
+  DEBUG_PRINT(root["bootupcolor"].as<String>());
   DEBUG_PRINT("\nhost: |");
   DEBUG_PRINT(root["host"].as<String>());
   DEBUG_PRINT("|\nssid: |");
@@ -167,41 +177,25 @@ void saveConfig() {
   file.close();
 }
 
-String getContentType(String filename){
-  if(server.hasArg("download")) return "application/octet-stream";
-  else if(filename.endsWith(".htm")) return "text/html";
-  else if(filename.endsWith(".html")) return "text/html";
-  else if(filename.endsWith(".css")) return "text/css";
-  else if(filename.endsWith(".js")) return "application/javascript";
-  else if(filename.endsWith(".png")) return "image/png";
-  else if(filename.endsWith(".gif")) return "image/gif";
-  else if(filename.endsWith(".jpg")) return "image/jpeg";
-  else if(filename.endsWith(".ico")) return "image/x-icon";
-  else if(filename.endsWith(".xml")) return "text/xml";
-  else if(filename.endsWith(".pdf")) return "application/x-pdf";
-  else if(filename.endsWith(".zip")) return "application/x-zip";
-  else if(filename.endsWith(".gz")) return "application/x-gzip";
-  else if(filename.endsWith(".json")) return "application/json";
-  return "text/plain";
-}
-
-bool handleFileRead(String path){
-  DEBUG_PRINT("handleFileRead: ");
-  DEBUG_PRINT(path);
-  if(path.endsWith("/")) {
-    path += "index.html";
-  } 
-  if(!path.endsWith(".json") && !path.endsWith(".html")) {
-    path += ".html";
-  }
-  String contentType = getContentType(path);
-  if(SPIFFS.exists(path)){
+//save the received  new favourit color in the array as json
+void savecolor() {
+  String path = "/colors.json";
+  if (SPIFFS.exists(path)) {
     File file = SPIFFS.open(path, "r");
-    server.streamFile(file, contentType);
+    StaticJsonBuffer<512> jsonBuffer;
+    JsonObject &root = jsonBuffer.parseObject(file);
+    DEBUG_PRINT(path + " parsed");
     file.close();
-    return true;
-  } else {
-    return false;
+    DEBUG_PRINT("|"+server.argName(0) +"|: |"+server.arg(0)+"|");
+//    if((server.argName(0)[0] >= '0') && (server.argName(0)[0] <= '9')) {
+      root[server.argName(0)] = server.arg(0);
+      DEBUG_PRINT(server.argName(0) + " got new color: "+server.arg(0));
+//    }
+    file = SPIFFS.open(path, "w");
+    if (root.printTo(file) == 0) {
+      DEBUG_PRINT("Failed to write configuration");
+    }
+    file.close();
   }
 }
 
@@ -229,7 +223,17 @@ void configPage() {
   if (server.hasArg("height")) {
     height = atoi(server.arg("height").c_str());
   }
-  
+
+  if (server.hasArg("bootupcolor")) {
+    if (bootupcolor != nullptr) {
+      free(bootupcolor);
+    }
+    size_t length = server.arg("bootupcolor").length();
+    bootupcolor = (char*) malloc(length+1);
+    strncpy(host, server.arg("bootupcolor").c_str(), length);
+    bootupcolor[length] = '\0';
+  }
+
   if (server.hasArg("host")) {
     if (host != nullptr) {
       free(host);
@@ -374,13 +378,23 @@ void setup() {
   }
 
   loadConfig();
+
+  if(bootupcolor[0] != '\0') {
+    power = true;
+    red   = ascii2hex(bootupcolor[0]) << 4 | ascii2hex(bootupcolor[1]);
+    green = ascii2hex(bootupcolor[2]) << 4 | ascii2hex(bootupcolor[3]);
+    blue  = ascii2hex(bootupcolor[4]) << 4 | ascii2hex(bootupcolor[5]);
+  }
+  
   setupLed();
+  updateLed();
 
   //WIFI INIT
   DEBUG_PRINT("Connecting to ");
   DEBUG_PRINT(ssid);
   DEBUG_PRINT("\n");
   WiFi.mode(WIFI_STA);
+  WiFi.hostname(host);
   WiFi.begin(ssid, pwd);
 
   //30*500ms = 15sec
@@ -413,18 +427,32 @@ void setup() {
     DEBUG_PRINT(WiFi.softAPIP());
     DEBUG_PRINT("\n");
   }
-/*
-  delay(2000);
-  MDNS.begin(host);
-  DEBUG_PRINT("mDNS started as: |");
-  DEBUG_PRINT(host);
-  DEBUG_PRINT("|\n");
-*/
+
   //SERVER INIT
   httpUpdater.setup(&server, update_path, update_username, update_password);
 
   server.on("/", indexPage);
   server.on("/config", configPage);
+  server.on("/colors", savecolor);
+
+  //FileHandling
+  
+  server.on("/list", HTTP_GET, handleFileList);
+  //load editor
+  server.on("/edit", HTTP_GET, [](){
+    if(!handleFileRead("/edit.htm")) server.send(404, "text/plain", "FileNotFound");
+  });
+  //create file
+  server.on("/edit", HTTP_PUT, handleFileCreate);
+  //delete file
+  server.on("/edit", HTTP_DELETE, handleFileDelete);
+  //first callback is called after the request has ended with all parsed arguments
+  //second callback handles file uploads at that location
+  server.on("/edit", HTTP_POST, [](){ server.send(200, "text/plain", ""); }, handleFileUpload);
+
+  
+  
+  
   server.onNotFound([]() {
     if(!handleFileRead(server.uri())) {
       server.send(404, "text/plain", "FileNotFound");

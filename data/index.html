@@ -15,55 +15,96 @@ form {
   display: none;
 }
 canvas {
-  width: 100%;
+  width: 100vw;
   max-width: 1024px;
   margin-left: auto;
   margin-right: auto;
   display: block;
 }
-#inner {
-  position: absolute;
-  left: 50vw;
-  top: 36vw;
-  height: 26vw;
-  width: 26vw;
-  transform:translateX(-50%);
-  border-radius: 100%;
-  background-color: #838485;
-  border: 5px solid black;
-  cursor: pointer;
-  box-shadow: inset 0 0 15px #000000;
+canvas + .color {
+	position: absolute;
+	color: #333;
+	top: 370px;
+	left: calc(50% + 100px);
 }
-#inner > svg {
-  margin-left: 25%;
-  width:50%;
-  height:100%;
+@media screen and (max-width: 1025px) {
+	canvas + .color {
+		font-size: 75%;
+	top: 73vw;
+	left: 73vw;
+	}
 }
 @media screen and (min-width: 1025px) {
   canvas {
     max-width: 500px;
   }
-  #inner {
-    top: calc(250px - 65px);
-    height: 130px;
-    width: 130px;
-  }
+}
+
+#predefined {
+	margin-left: 50vw;
+  transform:translateX(-50%);
+	display: inline-block;
+}
+
+.color {
+	float: left;
+	background-color: #fffaf0;
+	max-width: 40px;
+	max-height: 40px;
+	height: 6.5vw;
+	width: 6.5vw;
+	margin: 0.5vw;
+	padding: 0.5vw;
+	border-radius: 100px;
+	border: 2px solid #333;
+	background-clip:content-box;
+	text-align: center;
+	color: #333;
+	font-weight: bold;
 }
 </style>
 <script>
-var powered = false;
-function power() {
-	powered = !powered;
+//thanks to historical use, always call the method "send("power=on");" before sending a new color to the server, to be sure, it is "powering" the LEDs
+
+//load the colors from the json and add them to the gui
+function loadColors() {
 	var xhr = new XMLHttpRequest();
-	xhr.open("POST", "/", true);
-	xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-	if(powered) {
-		xhr.send("power=on");
-	} else {
-		xhr.send("power=off");
+	xhr.onreadystatechange = function() {
+		if (xhr.readyState === 4) {
+			var MyJson = JSON.parse(xhr.responseText);
+			var circles = document.getElementsByClassName("color");
+			for (var colorCount = 1;colorCount < circles.length;colorCount++) {
+				circles[colorCount].style.backgroundColor = "#".concat(MyJson[colorCount-1]);
+			}
+		}
 	}
+	xhr.open("POST", "/colors.json", true);
+	xhr.setRequestHeader('Content-Type', 'application/json');
+	xhr.send();
 }
 
+//send the predefined color to the server-stripe
+function colorize(circle) {
+	send("power=on");
+	var rgb = circle.style.backgroundColor.match(/\d+/g);
+	color = rgbToHex(rgb[0],rgb[1],rgb[2]);
+	var buffer = "colour=";
+	buffer = buffer.concat(color);
+	send(buffer);
+}
+
+//save the predefined colors as json on the server
+function saveColor(name, color) {
+	var buffer = name;
+	buffer = buffer.concat("=");
+	buffer = buffer.concat(color);
+	var xhr = new XMLHttpRequest();
+	xhr.open("POST", "/colors", true);
+	xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+	xhr.send(buffer);
+}
+
+//create the big circle with all colors
 function canvas_create() {
   var canvas = document.getElementById("picker");
   var width = canvas.offsetWidth;
@@ -83,75 +124,116 @@ function canvas_create() {
     context.fillStyle = 'hsl('+angle+', 100%, 50%)';
     context.fill();
   }
-
-  var gradient = context.createRadialGradient(x, x, x/3.5, x, x, x/2);
+//make this path 50% of the inner circle,
+//of this 10% pure white, go to 80% make it "invisible"
+  var gradient = context.createRadialGradient(width/2, width/2, 0, width/2, width/2, (radius*50/100));
   gradient.addColorStop(0, 'white');
+  gradient.addColorStop(0.2, 'white');
   gradient.addColorStop(1, 'rgba(255,255,255,0)');
+
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, width);
-  gradient = context.createRadialGradient(x, x, x/2.1, x, x, x/1.4);
+
+//make this path the other 50%
+//of this 33% "invisible", so we have pure colour
+//than go fast to dark
+  gradient = context.createRadialGradient(x, x, (radius*50/100), x, x, (radius*100/100));
   gradient.addColorStop(0, 'rgba(0,0,0,0)');
-  gradient.addColorStop(1, 'black');
+  gradient.addColorStop(0.3, 'rgba(0,0,0,0)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0.9)');
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, width);
 
   document.getElementById("picker").addEventListener("click",function(event){
+
+		send("power=on");
     var eventLocation = getEventLocation(this,event);
     var context = this.getContext('2d');
     var pixelData = context.getImageData(eventLocation.x, eventLocation.y, 1, 1).data; 
-    var hex = ("000000" + rgbToHex(pixelData[0], pixelData[1], pixelData[2])).slice(-6);
 
-	//set own new colour
-    document.getElementById("inner").style.boxShadow.color = hex;
+		var color = "000000";
+		//be lighter than the minimum of 0x90, so the leds are going on shining, else they are off
+		if(pixelData[0]+pixelData[1]+pixelData[2] > 0x90) {
+	    color = rgbToHex(pixelData[0], pixelData[1], pixelData[2]);
+		}	
+	  //set own new colour on the strip
+    document.getElementById("current").style.backgroundColor = "#".concat(color);
+		var buffer = "colour=";
+		buffer = buffer.concat(color);
+		send(buffer);
+  },false);
+}
 
+//send the given string to the server
+function send(buffer) {
 	//send it to the server
 	var xhr = new XMLHttpRequest();
 	xhr.open("POST", "/", true);
 	xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-	var buffer = "colour=";
-	buffer = buffer.concat(hex);
 	xhr.send(buffer);
-
-  },false);
 }
 
-function getElementPosition(obj) {
-  var curleft = 0, curtop = 0;
-  if (obj.offsetParent) {
-    do {
-      curleft += obj.offsetLeft;
-      curtop += obj.offsetTop;
-    } while (obj = obj.offsetParent);
-    return { x: curleft, y: curtop };
-  }
-  return undefined;
-}
+//get the position of the event on the element itself
 function getEventLocation(element,event){
-    var pos = getElementPosition(element);
-    return {
-        x: (event.pageX - pos.x),
-        y: (event.pageY - pos.y)
-    };
+  var pos = {x:0, y:0};
+  if (element.offsetParent) {
+    do {
+      pos.x += element.offsetLeft;
+      pos.y += element.offsetTop;
+    } while (element = element.offsetParent);
+  }
+	pos.x = event.pageX - pos.x;
+	pos.y = event.pageY - pos.y;
+  return pos;
 }
+
 function rgbToHex(r, g, b) {
   if (r > 255 || g > 255 || b > 255)
     throw "Invalid color component";
-  return ((r << 16) | (g << 8) | b).toString(16);
+  return ("000000" + ((r << 16) | (g << 8) | b).toString(16)).slice(-6);
+}
+
+
+//drag and drop colour
+function allowDrop(ev) {
+  ev.preventDefault();
+}
+
+//get the color from one colour-circle
+function drag(ev) {
+  ev.dataTransfer.setData("text", ev.target.style.backgroundColor);
+}
+
+function drop(ev) {
+  ev.preventDefault();
+  var data = ev.dataTransfer.getData("text");
+  ev.target.style.backgroundColor = data;
+	var rgb = data.match(/\d+/g);
+	saveColor(ev.target.attributes.name.value,rgbToHex(rgb[0],rgb[1],rgb[2]));
 }
 </script>
 </head>
 <body>
   <canvas id="picker"></canvas>
-  <div id="inner" onclick="power()">
-    <svg viewBox="0 0 200 185" xmlns:svg="http://www.w3.org/2000/svg" xmlns="http://www.w3.org/2000/svg">
-      <path style="stroke:#000;stroke-width:22;stroke-linecap:round;" d="m 100,20 0,75"/>
-      <path style="fill:none;stroke:#000;stroke-width:22;stroke-linecap:round" d="M 65 30 A 75 75 0 1 0 135 30"/>
-    </svg>
   </div>
+<div class="color" id="current" draggable="true" ondragstart="drag(event)">+</div>
+<div id="predefined">
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="0"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="1"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="2"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="3"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="4"></div><br>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="5"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="6"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="7"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="8"></div>
+<div class="color" ondrop="drop(event)" ondragover="allowDrop(event)" draggable="true" ondragstart="drag(event)" onclick="colorize(this)" name="9"></div>
+</div>
 </body>
 <footer>
   <script>
     canvas_create();
+		loadColors();
   </script>
 </footer>
 </html>

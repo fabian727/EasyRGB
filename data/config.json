@@ -1,10 +1,11 @@
 {
-"pin1": 0,
-"pin2": 1,
-"pin3": 2,
 "width": 0,
 "height": 0,
+"pin1": 12,
+"pin2": 14,
+"pin3": 13,
 "host":"easyrgb",
+"bootupcolor":"00ff00",
 "ssid":"IoT",
 "pwd":"YourPassPhrase"
 }
